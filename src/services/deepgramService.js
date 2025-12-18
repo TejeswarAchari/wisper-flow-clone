@@ -1,91 +1,125 @@
 const DEEPGRAM_API_KEY = import.meta.env.VITE_DEEPGRAM_API_KEY;
-const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen';
+const DEEPGRAM_WS_URL = 'wss://api.deepgram.com/v1/listen';
 
 if (!DEEPGRAM_API_KEY) {
   console.error('⚠️ DEEPGRAM_API_KEY not found in environment variables');
 }
 
-export async function transcribeAudio(audioBlob, options = {}) {
-  try {
-    // Log for debugging
-    console.log('🎵 Sending audio to Deepgram:', {
-      size: audioBlob.size,
-      type: audioBlob.type,
-    });
+let ws = null;
+let isStreaming = false;
 
-    if (audioBlob.size < 100) {
-      return {
-        success: false,
-        error: 'Audio too short. Please speak for at least 1 second.',
-        transcript: '',
-        confidence: 0,
-      };
-    }
-
-    const {
-      model = 'nova-2',
-      language = 'en',
-      punctuate = true,
-      smart_format = true,
-      diarize = false,
-      utterances = true,
-    } = options;
-
-    const params = new URLSearchParams({
-      model,
-      language,
-      punctuate: punctuate.toString(),
-      smart_format: smart_format.toString(),
-      diarize: diarize.toString(),
-      utterances: utterances.toString(),
-    });
-
-    console.log('📡 API URL:', `${DEEPGRAM_URL}?${params}`);
-
-    const response = await fetch(`${DEEPGRAM_URL}?${params}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-        'Content-Type': 'audio/webm',
-      },
-      body: audioBlob,
-    });
-
-    console.log('Response status:', response.status);
-
-    if (!response.ok) {
-      let errorMsg = response.statusText;
-      try {
-        const error = await response.json();
-        errorMsg = error.msg || error.message || response.statusText;
-      } catch (e) {
-        const text = await response.text();
-        errorMsg = text || response.statusText;
+export function createStreamingConnection(options = {}, onTranscript) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!DEEPGRAM_API_KEY) {
+        reject(new Error('Deepgram API key is missing. Check .env file.'));
+        return;
       }
-      throw new Error(`Deepgram API Error (${response.status}): ${errorMsg}`);
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+
+      const {
+        model = 'nova-2',
+        language = 'en',
+        punctuate = true,
+        smart_format = true,
+      } = options;
+
+      const params = new URLSearchParams({
+        model,
+        language,
+        punctuate: punctuate.toString(),
+        smart_format: smart_format.toString(),
+        interim_results: 'true',
+        encoding: 'linear16',
+        sample_rate: 16000,
+        channels: 1,
+      });
+
+      const url = `${DEEPGRAM_WS_URL}?${params}`;
+      ws = new WebSocket(url, ['token', DEEPGRAM_API_KEY]);
+
+      ws.binaryType = 'arraybuffer';
+
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close();
+          isStreaming = false;
+          reject(new Error('Connection timeout. Check your internet connection.'));
+        }
+      }, 10000);
+
+      ws.onopen = () => {
+        clearTimeout(connectionTimeout);
+        isStreaming = true;
+        resolve(ws);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'Results') {
+            const transcript = data.channel?.alternatives?.[0]?.transcript || '';
+            const confidence = data.channel?.alternatives?.[0]?.confidence || 0;
+            const isFinal = data.is_final || false;
+
+            if (transcript) {
+              onTranscript({
+                transcript,
+                confidence,
+                isFinal,
+              });
+            }
+          }
+
+          if (data.type === 'Error') {
+            console.error('Deepgram Error:', data.error);
+            reject(new Error(`Deepgram: ${data.error}`));
+          }
+        } catch (e) {
+          console.error('Error parsing Deepgram message:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        clearTimeout(connectionTimeout);
+        console.error('WebSocket error:', error);
+        isStreaming = false;
+        reject(new Error('Cannot connect to Deepgram. Check API key and internet.'));
+      };
+
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        isStreaming = false;
+        if (event.code !== 1000 && event.code !== 1005) {
+          console.error('WebSocket closed unexpectedly:', event.code, event.reason);
+        }
+      };
+    } catch (error) {
+      reject(error);
     }
+  });
+}
 
-    const result = await response.json();
-    console.log('✅ Deepgram Response:', result);
-    
-    const transcript = result.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
-    const confidence = result.results?.channels?.[0]?.alternatives?.[0]?.confidence || 0;
-
-    return {
-      success: true,
-      transcript,
-      confidence,
-      raw: result,
-    };
-  } catch (error) {
-    console.error('Transcription Error:', error);
-    return {
-      success: false,
-      error: error.message,
-      transcript: '',
-      confidence: 0,
-    };
+export function sendAudioChunk(data) {
+  if (ws && isStreaming && ws.readyState === WebSocket.OPEN) {
+    ws.send(data);
   }
+}
+
+export function closeStream() {
+  if (ws) {
+    ws.close();
+    ws = null;
+    isStreaming = false;
+  }
+}
+
+export function isStreamActive() {
+  return isStreaming && ws && ws.readyState === WebSocket.OPEN;
 }
 
 export function getSupportedModels() {
@@ -114,7 +148,10 @@ export function getSupportedLanguages() {
 }
 
 export default {
-  transcribeAudio,
+  createStreamingConnection,
+  sendAudioChunk,
+  closeStream,
+  isStreamActive,
   getSupportedModels,
   getSupportedLanguages,
 };

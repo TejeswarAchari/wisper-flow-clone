@@ -1,19 +1,22 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import useAudioRecorder from '../hooks/useAudioRecorder';
-import { transcribeAudio } from '../services/deepgramService';
+import { createStreamingConnection, sendAudioChunk, closeStream } from '../services/deepgramService';
 import RecordingIndicator from './RecordingIndicator';
 import TranscriptionDisplay from './TranscriptionDisplay';
 import '../styles/VoiceInput.css';
 
 function VoiceInput() {
   const { isRecording, recordingTime, error, startRecording, stopRecording } = useAudioRecorder();
-  const [transcript, setTranscript] = useState('');
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [finalTranscript, setFinalTranscript] = useState('');
   const [confidence, setConfidence] = useState(0);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState(null);
   const [model, setModel] = useState('nova-2');
   const [language, setLanguage] = useState('en');
   const [history, setHistory] = useState([]);
+  const recordingTimeoutRef = useRef(null);
+  const streamRef = useRef(null);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -21,82 +24,110 @@ function VoiceInput() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
+  const handleRecordingStop = useCallback(async () => {
+    setIsTranscribing(false);
+    closeStream();
+    streamRef.current = null;
+
+    if (finalTranscript.trim()) {
+      setHistory(prev => [{
+        timestamp: new Date(),
+        transcript: finalTranscript,
+        confidence: confidence,
+      }, ...prev].slice(0, 10));
+    }
+  }, [finalTranscript, confidence]);
+
   const handleMouseDown = async () => {
     setTranscriptionError(null);
-    const success = await startRecording();
-    if (!success) {
-      setTranscriptionError('Failed to start recording');
+    setLiveTranscript('');
+    setFinalTranscript('');
+    setConfidence(0);
+    setIsTranscribing(true);
+
+    try {
+      const micSuccess = await startRecording((pcmData) => {
+        sendAudioChunk(pcmData);
+      });
+
+      if (!micSuccess) {
+        setTranscriptionError('Microphone access denied. Please allow microphone permissions.');
+        setIsTranscribing(false);
+        return;
+      }
+
+      await createStreamingConnection(
+        { model, language, punctuate: true, smart_format: true },
+        (result) => {
+          if (result.isFinal) {
+            setFinalTranscript(prev => prev + (prev ? ' ' : '') + result.transcript);
+            setLiveTranscript('');
+            setConfidence(result.confidence);
+          } else {
+            setLiveTranscript(result.transcript);
+          }
+        }
+      );
+    } catch (err) {
+      setTranscriptionError(err.message || 'Failed to start recording');
+      closeStream();
+      await stopRecording();
+      setIsTranscribing(false);
     }
   };
 
   const handleMouseUp = async () => {
-    const audioBlob = await stopRecording();
-    
-    if (audioBlob) {
-      setIsTranscribing(true);
-      
-      try {
-        const result = await transcribeAudio(audioBlob, {
-          model,
-          language,
-          punctuate: true,
-          smart_format: true,
-        });
-
-        if (result.success) {
-          setTranscript(result.transcript);
-          setConfidence(result.confidence);
-          setTranscriptionError(null);
-          
-          setHistory(prev => [{
-            timestamp: new Date(),
-            transcript: result.transcript,
-            confidence: result.confidence,
-          }, ...prev].slice(0, 10));
-        } else {
-          setTranscriptionError(result.error);
-        }
-      } catch (err) {
-        setTranscriptionError('Transcription failed: ' + err.message);
-      } finally {
-        setIsTranscribing(false);
-      }
+    try {
+      await stopRecording();
+      await handleRecordingStop();
+    } catch (err) {
+      setTranscriptionError('Recording error: ' + err.message);
     }
   };
 
-  const handleMouseLeave = async () => {
-    if (isRecording) {
-      const audioBlob = await stopRecording();
-      if (audioBlob) {
-        setIsTranscribing(true);
-        try {
-          const result = await transcribeAudio(audioBlob, {
-            model,
-            language,
-            punctuate: true,
-            smart_format: true,
-          });
-
-          if (result.success) {
-            setTranscript(result.transcript);
-            setConfidence(result.confidence);
-          }
-        } finally {
-          setIsTranscribing(false);
-        }
+  useEffect(() => {
+    const handleKeyDown = async (e) => {
+      if ((e.code === 'Space' || e.code === 'KeyX') && !isRecording && !isTranscribing) {
+        e.preventDefault();
+        await handleMouseDown();
       }
-    }
-  };
+    };
+
+    const handleKeyUp = async (e) => {
+      if ((e.code === 'Space' || e.code === 'KeyX') && isRecording) {
+        e.preventDefault();
+        await handleMouseUp();
+      }
+    };
+
+    const handleGlobalMouseUp = async (e) => {
+      if (isRecording) {
+        await handleMouseUp();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isRecording, isTranscribing]);
 
   const handleClear = () => {
-    setTranscript('');
+    setFinalTranscript('');
+    setLiveTranscript('');
     setConfidence(0);
     setTranscriptionError(null);
   };
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(transcript);
+      const text = finalTranscript || liveTranscript;
+      await navigator.clipboard.writeText(text);
       alert('Transcript copied to clipboard!');
     } catch (err) {
       setTranscriptionError('Failed to copy to clipboard');
@@ -157,20 +188,17 @@ function VoiceInput() {
 
         <div className="button-section">
           <button
-            className={`voice-button ${isRecording ? 'recording' : ''} ${isTranscribing ? 'disabled' : ''}`}
+            className={`voice-button ${isRecording ? 'recording' : ''}`}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
-            disabled={isTranscribing}
-            title="Press and hold to record"
+            disabled={false}
+            title="Press and hold to record (release anywhere to stop)"
           >
             <span className="button-icon">🎙️</span>
             <span className="button-text">
-              {isTranscribing 
-                ? 'Transcribing...' 
-                : isRecording 
-                  ? `Recording... ${formatTime(recordingTime)}` 
-                  : 'Press & Hold to Record'}
+              {isRecording 
+                ? `Recording... ${formatTime(recordingTime)}` 
+                : 'Press & Hold to Record'}
             </span>
           </button>
         </div>
@@ -181,8 +209,17 @@ function VoiceInput() {
           </div>
         )}
 
+        {(liveTranscript || finalTranscript) && (
+          <div className="live-transcript">
+            <div className="transcript-content">
+              <span className="final">{finalTranscript}</span>
+              {liveTranscript && <span className="interim">{liveTranscript}</span>}
+            </div>
+          </div>
+        )}
+
         <TranscriptionDisplay
-          transcript={transcript}
+          transcript={finalTranscript}
           confidence={confidence}
           onClear={handleClear}
           onCopy={handleCopy}
