@@ -17,6 +17,10 @@ function VoiceInput() {
   const [history, setHistory] = useState([]);
   const recordingTimeoutRef = useRef(null);
   const streamRef = useRef(null);
+  const mouseDownTimeRef = useRef(null);
+  const recordingStartTimeoutRef = useRef(null);
+  const finalTranscriptRef = useRef('');
+  const confidenceRef = useRef(0);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -29,20 +33,22 @@ function VoiceInput() {
     closeStream();
     streamRef.current = null;
 
-    if (finalTranscript.trim()) {
+    if (finalTranscriptRef.current.trim()) {
       setHistory(prev => [{
         timestamp: new Date(),
-        transcript: finalTranscript,
-        confidence: confidence,
+        transcript: finalTranscriptRef.current,
+        confidence: confidenceRef.current,
       }, ...prev].slice(0, 10));
     }
-  }, [finalTranscript, confidence]);
+  }, []);
 
-  const handleMouseDown = async () => {
+  const startRecordingSession = async () => {
     setTranscriptionError(null);
     setLiveTranscript('');
     setFinalTranscript('');
     setConfidence(0);
+    finalTranscriptRef.current = '';
+    confidenceRef.current = 0;
     setIsTranscribing(true);
 
     try {
@@ -60,7 +66,10 @@ function VoiceInput() {
         { model, language, punctuate: true, smart_format: true },
         (result) => {
           if (result.isFinal) {
-            setFinalTranscript(prev => prev + (prev ? ' ' : '') + result.transcript);
+            const newTranscript = finalTranscriptRef.current + (finalTranscriptRef.current ? ' ' : '') + result.transcript;
+            finalTranscriptRef.current = newTranscript;
+            confidenceRef.current = result.confidence;
+            setFinalTranscript(newTranscript);
             setLiveTranscript('');
             setConfidence(result.confidence);
           } else {
@@ -76,32 +85,59 @@ function VoiceInput() {
     }
   };
 
+  const handleMouseDown = () => {
+    mouseDownTimeRef.current = Date.now();
+    setTranscriptionError(null);
+
+    recordingStartTimeoutRef.current = setTimeout(() => {
+      startRecordingSession();
+    }, 250);
+  };
+
   const handleMouseUp = async () => {
-    try {
-      await stopRecording();
-      await handleRecordingStop();
-    } catch (err) {
-      setTranscriptionError('Recording error: ' + err.message);
+    if (recordingStartTimeoutRef.current) {
+      clearTimeout(recordingStartTimeoutRef.current);
+      recordingStartTimeoutRef.current = null;
+    }
+
+    if (mouseDownTimeRef.current) {
+      const holdDuration = Date.now() - mouseDownTimeRef.current;
+      mouseDownTimeRef.current = null;
+
+      if (holdDuration < 250 && !isRecording) {
+        setTranscriptionError('Hold the button to record, don\'t just click!');
+        setTimeout(() => setTranscriptionError(null), 3000);
+        return;
+      }
+    }
+
+    if (isRecording) {
+      try {
+        await stopRecording();
+        await handleRecordingStop();
+      } catch (err) {
+        setTranscriptionError('Recording error: ' + err.message);
+      }
     }
   };
 
   useEffect(() => {
-    const handleKeyDown = async (e) => {
+    const handleKeyDown = (e) => {
       if ((e.code === 'Space' || e.code === 'KeyX') && !isRecording && !isTranscribing) {
         e.preventDefault();
-        await handleMouseDown();
+        handleMouseDown();
       }
     };
 
     const handleKeyUp = async (e) => {
-      if ((e.code === 'Space' || e.code === 'KeyX') && isRecording) {
+      if (e.code === 'Space' || e.code === 'KeyX') {
         e.preventDefault();
         await handleMouseUp();
       }
     };
 
     const handleGlobalMouseUp = async (e) => {
-      if (isRecording) {
+      if (isRecording || recordingStartTimeoutRef.current) {
         await handleMouseUp();
       }
     };
@@ -114,6 +150,9 @@ function VoiceInput() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
+      if (recordingStartTimeoutRef.current) {
+        clearTimeout(recordingStartTimeoutRef.current);
+      }
     };
   }, [isRecording, isTranscribing]);
 
@@ -138,7 +177,7 @@ function VoiceInput() {
     <div className="voice-input-container">
       <div className="voice-input-card">
         <div className="voice-header">
-          <h1>Wispr Flow</h1>
+          <h1>SubSpace Flow</h1>
           <p className="subtitle">Effortless Voice-to-Text</p>
         </div>
 
