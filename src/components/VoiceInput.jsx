@@ -138,8 +138,8 @@ function VoiceInput() {
     <div className="voice-input-container">
       <div className="voice-input-card">
         <div className="voice-header">
-          <h1>🎙️ Wispr Flow</h1>
-          <p className="subtitle">Voice-to-Text Transcription</p>
+          <h1>Wispr Flow</h1>
+          <p className="subtitle">Effortless Voice-to-Text</p>
         </div>
 
         <div className="settings-section">
@@ -190,22 +190,21 @@ function VoiceInput() {
           <button
             className={`voice-button ${isRecording ? 'recording' : ''}`}
             onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
             disabled={false}
             title="Press and hold to record (release anywhere to stop)"
           >
-            <span className="button-icon">🎙️</span>
+            <span className="button-icon">🎤</span>
             <span className="button-text">
               {isRecording 
                 ? `Recording... ${formatTime(recordingTime)}` 
-                : 'Press & Hold to Record'}
+                : 'Hold to Record'}
             </span>
           </button>
         </div>
 
         {(error || transcriptionError) && (
           <div className="error-message">
-            ⚠️ {error || transcriptionError}
+            {error || transcriptionError}
           </div>
         )}
 
@@ -213,7 +212,7 @@ function VoiceInput() {
           <div className="live-transcript">
             <div className="transcript-content">
               <span className="final">{finalTranscript}</span>
-              {liveTranscript && <span className="interim">{liveTranscript}</span>}
+              {liveTranscript && <span className="interim"> {liveTranscript}</span>}
             </div>
           </div>
         )}
@@ -227,7 +226,7 @@ function VoiceInput() {
 
         {history.length > 0 && (
           <div className="history-section">
-            <h3>📝 Recent Transcriptions</h3>
+            <h3>Recent Transcriptions</h3>
             <div className="history-list">
               {history.map((item, index) => (
                 <div key={index} className="history-item">
