@@ -629,6 +629,270 @@ npm run tauri-build
 
 ---
 
+## 🪟 Building for Windows (Detailed Guide)
+
+### Important Note
+**Tauri requires platform-specific builds**. You cannot build Windows installers from Linux or macOS. Each platform must be built on its native OS because Tauri uses native webview components (WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS).
+
+### Prerequisites for Windows
+
+#### 1. Install Node.js
+```
+Download: https://nodejs.org/
+Version: 18+ or 20+ LTS (recommended)
+Installer: Windows 64-bit (.msi)
+
+After installation, verify in PowerShell:
+node --version
+npm --version
+```
+
+#### 2. Install Rust
+```
+Download: https://rustup.rs/
+Run: rustup-init.exe
+Choose: 1) Proceed with installation (default)
+
+This installs:
+- rustc (Rust compiler)
+- cargo (Rust package manager)
+- rustup (Rust toolchain manager)
+
+After installation, restart terminal and verify:
+rustc --version
+cargo --version
+```
+
+#### 3. Install Visual Studio Build Tools
+```
+Download: https://visualstudio.microsoft.com/downloads/
+Select: "Build Tools for Visual Studio 2022" (FREE)
+
+During installation, check these workloads:
+✅ Desktop development with C++
+✅ MSVC v143 - VS 2022 C++ x64/x86 build tools
+✅ Windows 10 SDK (10.0.19041.0 or newer)
+✅ Windows 11 SDK (latest)
+
+Size: ~7 GB download, ~10 GB installed
+Time: 20-30 minutes
+```
+
+**Why Visual Studio?** Tauri and many Rust libraries require native C++ compilation tools on Windows.
+
+#### 4. Verify WebView2 (Usually Pre-installed)
+```
+WebView2 is included in:
+- Windows 10 (version 1803+)
+- Windows 11 (all versions)
+- Automatically with Microsoft Edge
+
+To verify: Check if Edge browser is installed
+Manual download (if needed): 
+https://developer.microsoft.com/microsoft-edge/webview2/
+```
+
+### Building on Windows
+
+#### Step 1: Get the Project
+
+**Option A: Transfer from Linux**
+```powershell
+# Copy project folder to Windows via:
+# - USB drive
+# - Cloud storage (Google Drive, Dropbox, OneDrive)
+# - Git (recommended - see Option B)
+```
+
+**Option B: Git Clone (Recommended)**
+```powershell
+# Install Git for Windows (if not installed)
+# Download: https://git-scm.com/download/win
+
+# Clone the repository
+git clone <your-repository-url>
+cd wispr-flow
+```
+
+#### Step 2: Install Dependencies
+```powershell
+# Navigate to project directory
+cd path\to\wispr-flow
+
+# Install Node.js dependencies
+npm install
+
+# Rust dependencies are auto-installed by Cargo during build
+```
+
+#### Step 3: Configure Environment Variables
+Create `.env` file in project root (same as Linux):
+```powershell
+# Create .env file
+notepad .env
+
+# Add this content:
+VITE_DEEPGRAM_API_KEY=your_api_key_here
+VITE_APP_NAME=Wispr Flow
+VITE_API_TIMEOUT=30000
+```
+
+#### Step 4: Development Mode (Test First)
+```powershell
+# Run development build (recommended before production build)
+npm run tauri dev
+
+# This will:
+# - Compile Rust code (first time takes 5-10 minutes)
+# - Start Vite dev server
+# - Open the application window
+# - Enable hot reload for development
+```
+
+**First Build Takes Longer:**
+- Rust compilation: 5-10 minutes
+- Downloads dependencies
+- Compiles ~300 crates
+- Subsequent builds: 30-60 seconds
+
+#### Step 5: Production Build
+```powershell
+# Build production installers
+npm run tauri-build
+
+# Build process:
+# 1. Compiles frontend (Vite) → ~1 second
+# 2. Compiles Rust backend (release mode) → ~35 seconds
+# 3. Creates installers → ~15 seconds
+# Total: ~1 minute
+```
+
+#### Step 6: Locate Windows Installers
+```powershell
+# Installers are created in:
+src-tauri\target\release\bundle\
+
+# Windows outputs:
+msi\Wispr Flow_0.1.0_x64_en-US.msi     ← Windows Installer
+nsis\Wispr Flow_0.1.0_x64-setup.exe    ← Setup Executable
+
+# File sizes (approximate):
+# .msi: ~9-10 MB
+# .exe: ~9-10 MB
+```
+
+### Installing the Application
+
+#### For End Users (Using .msi)
+```
+1. Double-click "Wispr Flow_0.1.0_x64_en-US.msi"
+2. Follow installation wizard
+3. Default install location: C:\Program Files\Wispr Flow\
+4. Creates Start Menu shortcut
+5. Launch from: Start Menu → Wispr Flow
+```
+
+#### For End Users (Using .exe)
+```
+1. Double-click "Wispr Flow_0.1.0_x64-setup.exe"
+2. Automatic installation (no wizard)
+3. Creates desktop shortcut
+4. Launches automatically after install
+```
+
+### Troubleshooting Windows Build Issues
+
+#### Issue 1: "rustc not found" or "cargo not found"
+**Solution:**
+```powershell
+# Close and reopen PowerShell/Command Prompt
+# Rust tools are added to PATH during installation
+
+# If still not found, manually add to PATH:
+# 1. Press Win + R, type: sysdm.cpl
+# 2. Advanced → Environment Variables
+# 3. Add to Path: C:\Users\<YourName>\.cargo\bin
+```
+
+#### Issue 2: "MSVC not found" or "link.exe not found"
+**Solution:**
+```
+Install Visual Studio Build Tools with C++ workload
+Ensure "MSVC v143" and "Windows SDK" are checked
+Restart terminal after installation
+```
+
+#### Issue 3: "WebView2 not found"
+**Solution:**
+```
+1. Check if Microsoft Edge is installed
+2. If not, install Edge from: microsoft.com/edge
+3. Or install WebView2 Runtime:
+   developer.microsoft.com/microsoft-edge/webview2/
+```
+
+#### Issue 4: Build errors mentioning "openssl" or "pkg-config"
+**Solution:**
+```powershell
+# Windows doesn't need OpenSSL for this project
+# If error persists, try:
+cargo clean
+npm run tauri-build
+```
+
+#### Issue 5: "Permission denied" during build
+**Solution:**
+```powershell
+# Run PowerShell as Administrator
+# Right-click PowerShell → "Run as administrator"
+cd path\to\wispr-flow
+npm run tauri-build
+```
+
+### Verifying Prerequisites (Windows)
+
+Run these commands to verify everything is installed:
+
+```powershell
+# Check Node.js
+node --version
+# Expected: v20.x.x or v18.x.x
+
+# Check npm
+npm --version
+# Expected: 9.x.x or 10.x.x
+
+# Check Rust
+rustc --version
+# Expected: rustc 1.70+ 
+
+# Check Cargo
+cargo --version
+# Expected: cargo 1.70+
+
+# Check MSVC compiler (Visual Studio Build Tools)
+where cl.exe
+# Expected: C:\Program Files\Microsoft Visual Studio\...\cl.exe
+
+# Check Git (optional, for cloning)
+git --version
+# Expected: git version 2.x.x
+```
+
+If all commands return version numbers, you're ready to build!
+
+### Cross-Platform Build Summary
+
+| Platform | Build On | Time | Output |
+|----------|----------|------|--------|
+| **Linux** | Linux | ~1 min | `.deb`, `.rpm`, `.AppImage` |
+| **Windows** | Windows | ~1 min | `.msi`, `.exe` |
+| **macOS** | macOS | ~1 min | `.dmg`, `.app` |
+
+**Key Takeaway:** Same React/JavaScript codebase, built separately on each OS for native performance and small bundle size.
+
+---
+
 ### Project Structure
 
 ```
