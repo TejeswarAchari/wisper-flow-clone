@@ -1,0 +1,49 @@
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-lg);
+  transition: all 0.2s ease;
+}
+
+.recording-indicator.active {
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error);
+}
+
+.pulse-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--text-secondary);
+  transition: background-color 0.3s ease;
+}
+
+.recording-indicator.active .pulse-dot {
+  background-color: var(--error);
+  animation: pulse 1.5s infinite;
+}
+
+.recording-status {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.recording-indicator.active .recording-status {
+  color: var(--error);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

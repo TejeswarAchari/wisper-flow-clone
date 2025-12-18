@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "identifier": "default",
+  "description": "Capability for the default set of permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:default",
+    "core:window:allow-create",
+    "core:app:default",
+    "core:webview:default"
+  ]
+}
